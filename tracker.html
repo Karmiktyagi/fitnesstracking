@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <title>Calorie Tracker - FitnessPoint</title>
+  </head>
+  <body class="tracker-body">
+    <div class="tracker__container">
+      <a href="index.html">
+        <img src="assets/logo-dark.png" alt="logo" class="tracker__logo" />
+      </a>
+      <h2>Track Your Daily Calories</h2>
+
+      <div class="tracker__summary">
+        <div class="summary__card">
+          <h4>Goal</h4>
+          <p id="goal-calories">2000</p>
+        </div>
+        <div class="summary__card">
+          <h4>Consumed</h4>
+          <p id="consumed-calories">0</p>
+        </div>
+        <div class="summary__card">
+          <h4>Remaining</h4>
+          <p id="remaining-calories">2000</p>
+        </div>
+      </div>
+
+      <form id="calorie-form">
+        <div class="input__group">
+          <label for="food-item">Food Item</label>
+          <input type="text" id="food-item" placeholder="e.g., Apple" required />
+        </div>
+        <div class="input__group">
+          <label for="calories">Calories</label>
+          <input type="number" id="calories" placeholder="e.g., 95" required />
+        </div>
+        <button type="submit" class="btn">Add Item</button>
+      </form>
+
+      <div class="food__list">
+        <h3>Today's Food</h3>
+        <ul id="food-items-list">
+          </ul>
+      </div>
+      <div class="tracker__footer">
+        <a href="index.html">Go Back to Home</a>
+      </div>
+    </div>
+
+    <script src="tracker.js"></script>
+  </body>
+</html>
