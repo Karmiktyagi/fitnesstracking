@@ -41,7 +41,7 @@
             getFirestore, 
             setDoc, 
             doc,
-            getDoc, // <-- ADDED getDoc for efficient profile retrieval
+            getDoc, 
             collection,
             getDocs,
             query,
@@ -73,7 +73,7 @@
         // Utility function to handle error messages
         const displayMessage = (message, isError = false) => {
             statusMessage.textContent = message;
-            statusMessage.className = `p-3 mt-4 text-sm font-medium rounded-lg ${
+            statusMessage.className = `p-3 mt-4 text-sm font-medium rounded-lg text-center ${
                 isError ? 'bg-red-900 text-red-300' : 'bg-green-900 text-green-300'
             } transition-opacity duration-300`;
             statusMessage.style.opacity = '1';
@@ -91,7 +91,7 @@
 
         const initializeFirebase = async () => {
             if (!firebaseConfig) {
-                displayMessage("Firebase configuration is missing. Cannot proceed with authentication.", true);
+                displayMessage("Error: Firebase configuration is missing.", true);
                 return;
             }
 
@@ -111,10 +111,10 @@
                     if (user) {
                         currentUserId = user.uid;
                         await fetchUserProfile(currentUserId);
-                        // Redirect or display dashboard content here in a real app
+                        
                         document.getElementById('user-id-display').textContent = `User ID: ${currentUserId}`;
                         console.log("Authentication successful. User ID:", currentUserId);
-                        // The success message should reflect the mode used to get here
+                        
                         const message = isLoginMode ? 
                             `Welcome back, ${auth.currentUser.email || currentUserName}! You are logged in.` : 
                             `Account created successfully! Welcome, ${auth.currentUser.email || currentUserName}.`;
@@ -135,19 +135,18 @@
         };
 
         // Fetch (or create) user profile
-        // FIX: Changed from query/getDocs to the efficient doc/getDoc method.
         const fetchUserProfile = async (userId) => {
             if (!db) return;
 
             // Reference to the single profile document
+            // Path: artifacts/{appId}/users/{userId}/profile/data
             const userRef = doc(db, "artifacts", appId, "users", userId, "profile", "data");
             
             try {
-                // Get the document directly
                 const docSnap = await getDoc(userRef);
 
                 if (!docSnap.exists()) {
-                    // Create basic profile if it doesn't exist (e.g., after sign up)
+                    // Create basic profile if it doesn't exist 
                     const userEmail = auth.currentUser.email || "N/A";
                     await setDoc(userRef, {
                         uid: userId,
@@ -164,7 +163,6 @@
                 }
             } catch (error) {
                 console.error("Error managing user profile:", error);
-                // Non-critical error, proceed with default name
             }
         };
 
@@ -191,10 +189,8 @@
             try {
                 if (isLoginMode) {
                     await signInWithEmailAndPassword(auth, email, password);
-                    // onAuthStateChanged handles success message
                 } else {
                     await createUserWithEmailAndPassword(auth, email, password);
-                    // onAuthStateChanged handles success message and profile creation
                 }
                 
                 // Reset form fields
@@ -203,6 +199,9 @@
             } catch (error) {
                 let errorMessage = "An unknown error occurred. Please try again.";
                 switch (error.code) {
+                    case 'auth/operation-not-allowed':
+                        errorMessage = "Sign-in failed. The Email/Password authentication method is disabled for this application's environment.";
+                        break;
                     case 'auth/user-not-found':
                     case 'auth/wrong-password':
                         errorMessage = isLoginMode ? "Invalid credentials." : "User not found or incorrect password.";
