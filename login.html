@@ -1,39 +1,328 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
+<head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link
-      href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="styles.css" />
-    <title>Login - FitnessPoint</title>
-  </head>
-  <body class="login-body">
-    <div class="login__container">
-      <div class="login__form">
-        <a href="index.html">
-          <img src="assets/logo-dark.png" alt="logo" class="login__logo" />
-        </a>
-        <h2>Welcome Back!</h2>
-        <p>Sign in to continue your fitness journey.</p>
-        <form action="#">
-          <div class="input__group">
-            <label for="email">Email</label>
-            <input type="email" id="email" placeholder="Enter your email" required />
-          </div>
-          <div class="input__group">
-            <label for="password">Password</label>
-            <input type="password" id="password" placeholder="Enter your password" required />
-          </div>
-          <button type="submit" class="btn">Login</button>
-        </form>
-        <div class="login__footer">
-          <p>Don't have an account? <a href="#">Sign Up</a></p>
-          <a href="index.html">Go Back to Home</a>
+    <title>FitnessPoint - Auth</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Inter font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    
+    <style>
+        /* Custom Tailwind Configuration */
+        :root {
+            font-family: 'Inter', sans-serif;
+        }
+        .login-body {
+            background: linear-gradient(135deg, #1f2937, #111827); /* Dark gradient background */
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+    </style>
+</head>
+<body class="login-body">
+
+    <!-- Firebase SDK Imports (Module Type) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            signInWithCustomToken, 
+            createUserWithEmailAndPassword, 
+            signInWithEmailAndPassword,
+            onAuthStateChanged 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            setDoc, 
+            doc,
+            getDoc, // <-- ADDED getDoc for efficient profile retrieval
+            collection,
+            getDocs,
+            query,
+            where
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Use environment variables for configuration
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let app, db, auth;
+        let currentUserId = null;
+        let currentUserName = "Guest";
+
+        const formContainer = document.getElementById('form-container');
+        const statusMessage = document.getElementById('status-message');
+        const toggleLink = document.getElementById('toggle-auth-link');
+        const authTitle = document.getElementById('auth-title');
+        const authSubtitle = document.getElementById('auth-subtitle');
+        const authButton = document.getElementById('auth-button');
+        const emailInput = document.getElementById('email');
+        const passwordInput = document.getElementById('password');
+        const loginForm = document.getElementById('auth-form');
+
+        let isLoginMode = true;
+
+        // Utility function to handle error messages
+        const displayMessage = (message, isError = false) => {
+            statusMessage.textContent = message;
+            statusMessage.className = `p-3 mt-4 text-sm font-medium rounded-lg ${
+                isError ? 'bg-red-900 text-red-300' : 'bg-green-900 text-green-300'
+            } transition-opacity duration-300`;
+            statusMessage.style.opacity = '1';
+        };
+
+        const clearMessage = () => {
+             statusMessage.style.opacity = '0';
+             setTimeout(() => {
+                statusMessage.textContent = '';
+                statusMessage.className = 'opacity-0';
+            }, 300);
+        };
+        
+        // --- Firebase Initialization and Authentication ---
+
+        const initializeFirebase = async () => {
+            if (!firebaseConfig) {
+                displayMessage("Firebase configuration is missing. Cannot proceed with authentication.", true);
+                return;
+            }
+
+            try {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                setLogLevel('debug'); // Enable debug logging for Firestore
+
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        currentUserId = user.uid;
+                        await fetchUserProfile(currentUserId);
+                        // Redirect or display dashboard content here in a real app
+                        document.getElementById('user-id-display').textContent = `User ID: ${currentUserId}`;
+                        console.log("Authentication successful. User ID:", currentUserId);
+                        // The success message should reflect the mode used to get here
+                        const message = isLoginMode ? 
+                            `Welcome back, ${auth.currentUser.email || currentUserName}! You are logged in.` : 
+                            `Account created successfully! Welcome, ${auth.currentUser.email || currentUserName}.`;
+                        displayMessage(message, false);
+
+                    } else {
+                        currentUserId = null;
+                        currentUserName = "Guest";
+                        document.getElementById('user-id-display').textContent = `User ID: Not Signed In`;
+                        console.log("User is signed out or anonymous.");
+                    }
+                });
+
+            } catch (error) {
+                console.error("Firebase Initialization or Auth Error:", error);
+                displayMessage(`A critical error occurred: ${error.message}`, true);
+            }
+        };
+
+        // Fetch (or create) user profile
+        // FIX: Changed from query/getDocs to the efficient doc/getDoc method.
+        const fetchUserProfile = async (userId) => {
+            if (!db) return;
+
+            // Reference to the single profile document
+            const userRef = doc(db, "artifacts", appId, "users", userId, "profile", "data");
+            
+            try {
+                // Get the document directly
+                const docSnap = await getDoc(userRef);
+
+                if (!docSnap.exists()) {
+                    // Create basic profile if it doesn't exist (e.g., after sign up)
+                    const userEmail = auth.currentUser.email || "N/A";
+                    await setDoc(userRef, {
+                        uid: userId,
+                        email: userEmail,
+                        createdAt: new Date().toISOString(),
+                    });
+                    currentUserName = userEmail; 
+                    console.log("Created new user profile.");
+                } else {
+                     // Profile exists, fetch name/email
+                    const data = docSnap.data();
+                    currentUserName = data.email || "User"; 
+                    console.log("Fetched existing user profile.");
+                }
+            } catch (error) {
+                console.error("Error managing user profile:", error);
+                // Non-critical error, proceed with default name
+            }
+        };
+
+        // --- Auth Handlers ---
+
+        const handleAuth = async (e) => {
+            e.preventDefault();
+            clearMessage();
+            authButton.disabled = true;
+            authButton.innerHTML = isLoginMode ? 
+                `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Logging In...` : 
+                `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Signing Up...`;
+
+            const email = emailInput.value.trim();
+            const password = passwordInput.value.trim();
+
+            if (!email || !password) {
+                displayMessage("Email and Password are required.", true);
+                authButton.disabled = false;
+                authButton.innerHTML = isLoginMode ? 'Login' : 'Sign Up';
+                return;
+            }
+
+            try {
+                if (isLoginMode) {
+                    await signInWithEmailAndPassword(auth, email, password);
+                    // onAuthStateChanged handles success message
+                } else {
+                    await createUserWithEmailAndPassword(auth, email, password);
+                    // onAuthStateChanged handles success message and profile creation
+                }
+                
+                // Reset form fields
+                emailInput.value = '';
+                passwordInput.value = '';
+            } catch (error) {
+                let errorMessage = "An unknown error occurred. Please try again.";
+                switch (error.code) {
+                    case 'auth/user-not-found':
+                    case 'auth/wrong-password':
+                        errorMessage = isLoginMode ? "Invalid credentials." : "User not found or incorrect password.";
+                        break;
+                    case 'auth/email-already-in-use':
+                        errorMessage = "This email is already registered. Try logging in.";
+                        break;
+                    case 'auth/weak-password':
+                        errorMessage = "Password should be at least 6 characters.";
+                        break;
+                    case 'auth/invalid-email':
+                        errorMessage = "Invalid email format.";
+                        break;
+                    default:
+                        console.error("Firebase Auth Error:", error);
+                        errorMessage = `Error: ${error.message}`;
+                }
+                displayMessage(errorMessage, true);
+            } finally {
+                authButton.disabled = false;
+                authButton.innerHTML = isLoginMode ? 'Login' : 'Sign Up';
+            }
+        };
+
+        // --- UI Toggler ---
+        const toggleAuthMode = (e) => {
+            e.preventDefault();
+            clearMessage();
+            isLoginMode = !isLoginMode;
+
+            if (isLoginMode) {
+                authTitle.textContent = "Welcome Back!";
+                authSubtitle.textContent = "Sign in to continue your fitness journey.";
+                authButton.textContent = "Login";
+                toggleLink.innerHTML = "Don't have an account? <a href='#' class='text-green-400 hover:text-green-300 font-semibold transition duration-150'>Sign Up</a>";
+                toggleLink.querySelector('a').onclick = toggleAuthMode;
+            } else {
+                authTitle.textContent = "Join FitnessPoint";
+                authSubtitle.textContent = "Create an account and start your transformation.";
+                authButton.textContent = "Sign Up";
+                toggleLink.innerHTML = "Already have an account? <a href='#' class='text-green-400 hover:text-green-300 font-semibold transition duration-150'>Login</a>";
+                toggleLink.querySelector('a').onclick = toggleAuthMode;
+            }
+        };
+
+        // Attach event listeners after initialization
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeFirebase();
+            loginForm.addEventListener('submit', handleAuth);
+            // Re-attach handler to the initial toggle link element
+            if (toggleLink.querySelector('a')) {
+                toggleLink.querySelector('a').onclick = toggleAuthMode;
+            }
+        });
+        
+    </script>
+    
+    <!-- Main Content Container -->
+    <div id="form-container" class="w-full max-w-md bg-gray-800 p-8 md:p-10 rounded-xl shadow-2xl border border-gray-700/50">
+        
+        <!-- Logo and Heading -->
+        <div class="text-center mb-8">
+            <img src="https://placehold.co/150x50/34D399/ffffff?text=FitnessPoint" alt="logo" class="h-10 mx-auto mb-6 rounded-lg" />
+            <h2 id="auth-title" class="text-3xl font-extrabold text-white mb-2">Welcome Back!</h2>
+            <p id="auth-subtitle" class="text-gray-400">Sign in to continue your fitness journey.</p>
         </div>
-      </div>
+        
+        <!-- Status Message Area (Error/Success) -->
+        <div id="status-message" class="opacity-0 transition duration-300"></div>
+
+        <!-- Authentication Form -->
+        <form id="auth-form" action="#" method="POST">
+            
+            <div class="space-y-6">
+                <!-- Email Input -->
+                <div class="input__group">
+                    <label for="email" class="block text-sm font-medium text-gray-300 mb-1">Email</label>
+                    <input 
+                        type="email" 
+                        id="email" 
+                        placeholder="you@example.com" 
+                        required 
+                        class="w-full p-3 bg-gray-700 text-white border border-gray-600 rounded-lg focus:ring-green-500 focus:border-green-500 transition duration-150 placeholder-gray-400" 
+                    />
+                </div>
+                
+                <!-- Password Input -->
+                <div class="input__group">
+                    <label for="password" class="block text-sm font-medium text-gray-300 mb-1">Password</label>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        placeholder="Minimum 6 characters" 
+                        required 
+                        minlength="6"
+                        class="w-full p-3 bg-gray-700 text-white border border-gray-600 rounded-lg focus:ring-green-500 focus:border-green-500 transition duration-150 placeholder-gray-400" 
+                    />
+                </div>
+            </div>
+            
+            <!-- Submit Button -->
+            <button 
+                id="auth-button"
+                type="submit" 
+                class="w-full flex items-center justify-center mt-8 py-3 px-4 bg-green-500 hover:bg-green-600 text-white font-bold text-lg rounded-lg transition duration-300 shadow-lg shadow-green-500/30 disabled:bg-green-700 disabled:opacity-75 disabled:cursor-not-allowed"
+            >
+                Login
+            </button>
+        </form>
+        
+        <!-- Footer Links -->
+        <div class="text-center mt-6 space-y-3 text-sm text-gray-400">
+            <p id="toggle-auth-link" class="login__footer">
+                Don't have an account? 
+                <a href="#" class='text-green-400 hover:text-green-300 font-semibold transition duration-150'>Sign Up</a>
+            </p>
+            <a href="#" class="block hover:text-white transition duration-150">Forgot Password?</a>
+            <p id="user-id-display" class="pt-4 text-xs text-gray-500">User ID: Not Signed In</p>
+        </div>
+        
     </div>
-  </body>
+</body>
 </html>
